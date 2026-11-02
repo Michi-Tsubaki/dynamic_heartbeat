@@ -1,15 +1,15 @@
-// 全アクチュエータ自動チェック
-// 各アクチュエータを順番に3秒ずつONにする (間に1秒停止)。これを繰り返す。
-// 現在の動作はシリアルモニタ (115200bps) に表示される。
+// Automatic check of all actuators
+// Turns each actuator ON for 3 s in turn (with a 1 s pause between), and repeats.
+// The current action is printed to the serial monitor (115200 bps).
 //
-//   電磁弁1 -> 電磁弁2 -> 水冷ポンプ -> モータ正転 -> モータ逆転 -> (繰り返し)
+//   Solenoid valve 1 -> Solenoid valve 2 -> Water pump -> Motor forward -> Motor reverse -> (repeat)
 
 // MOSFET
 const int VALVE1 = 6;
 const int VALVE2 = 4;
 const int PUMP = 2;
 
-// モータドライバ (Aチャンネルのみ使用)
+// Motor driver (channel A only)
 const int PWMA = 3;
 const int AIN1 = 8;
 const int AIN2 = 9;
@@ -17,7 +17,7 @@ const int STBY = 10;
 
 const unsigned long ON_MS = 3000;
 const unsigned long OFF_MS = 1000;
-const int MOTOR_SPEED = 255;  // 0-255 (フル)
+const int MOTOR_SPEED = 255;  // 0-255 (255 = full)
 
 void setup() {
   pinMode(VALVE1, OUTPUT);
