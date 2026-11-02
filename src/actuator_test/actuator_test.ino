@@ -6,7 +6,7 @@
 
 // MOSFET
 const int VALVE1 = 6;
-const int VALVE2 = 4;
+// const int VALVE2 = 4;  // Disabled: not enough current to drive both valves
 const int PUMP = 2;
 
 // Motor driver (channel A only)
@@ -21,7 +21,7 @@ const int MOTOR_SPEED = 255;  // 0-255 (255 = full)
 
 void setup() {
   pinMode(VALVE1, OUTPUT);
-  pinMode(VALVE2, OUTPUT);
+  // pinMode(VALVE2, OUTPUT);
   pinMode(PUMP, OUTPUT);
   pinMode(PWMA, OUTPUT);
   pinMode(AIN1, OUTPUT);
@@ -36,7 +36,7 @@ void setup() {
 
 void loop() {
   testPin("Valve1 (D6)", VALVE1);
-  testPin("Valve2 (D4)", VALVE2);
+  // testPin("Valve2 (D4)", VALVE2);
   testPin("Pump (D2)", PUMP);
   testMotor("Motor FWD", 1);
   testMotor("Motor REV", -1);
@@ -77,7 +77,7 @@ void motorStop() {
 
 void allOff() {
   digitalWrite(VALVE1, LOW);
-  digitalWrite(VALVE2, LOW);
+  // digitalWrite(VALVE2, LOW);
   digitalWrite(PUMP, LOW);
   motorStop();
 }
