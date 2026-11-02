@@ -21,7 +21,7 @@ uv sync
 
 ## Usage
 
-Arduino（UNO）へ書き込み（[arduino-cli](https://arduino.github.io/arduino-cli/) の場合．Arduino IDE で `src/heartbeat/heartbeat.ino` を開いて書き込んでもよい）
+Arduino（UNO）へ書き込み（[arduino-cli](https://arduino.github.io/arduino-cli/) の場合．）
 
 ```bash
 arduino-cli compile --fqbn arduino:avr:uno src/heartbeat
