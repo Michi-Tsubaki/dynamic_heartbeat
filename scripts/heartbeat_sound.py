@@ -1,59 +1,18 @@
 #!/usr/bin/env python3
-"""心拍数 (BPM) に合わせて, 手術ドラマ/映画風の「ドクン」という心音を鳴らす.
-
-1拍は「ドッ」と「クン」の2打で構成する.
-  - ドッ : やや軽めの低い打音
-  - クン : 本体. より低く太く, 余韻 (響き) が長い
-ドラムっぽさの原因になる「鋭い立ち上がり・高域のアタック・ノイズ」を避け,
-  - 柔らかい立ち上がり (十数 ms)
-  - 40-60 Hz の太い基音 + 胸越しに聞いたような強いローパス
-  - 体内で響いているような短いリバーブ
-で, こもった「ドクン」にしている.
-
-使い方:
-  python3 scripts/heartbeat_sound.py 72            # 72 BPM で鳴らし続ける
-  (実行中に数字を入力して Enter で BPM を変更, q で終了)
-  python3 scripts/heartbeat_sound.py 72 --wav out.wav --seconds 10   # WAV 保存
-
-依存: numpy, scipy (再生には aplay / pw-play / paplay のいずれか)
-"""
-
 import argparse
+import queue
 import shutil
 import subprocess
 import sys
 import threading
+import time
 import wave
 
 import numpy as np
-from scipy.signal import butter, sosfilt
+from scipy.signal import butter, fftconvolve, sosfilt
 
 SR = 44100
 BPM_MIN, BPM_MAX = 20.0, 240.0
-
-_LP_BODY = butter(4, 160, "low", fs=SR, output="sos")   # 胸越しのこもり
-_LP_FINAL = butter(2, 400, "low", fs=SR, output="sos")  # 歪みで出た倍音のうち耳障りな高域を除去
-_HP_DC = butter(2, 25, "high", fs=SR, output="sos")     # スピーカーで出ない超低域/DC を除去
-
-
-def _hit(f0, f1, attack, tau, dur, rng):
-    """柔らかく立ち上がり, 音程がわずかに下がりながら減衰する低音の打撃."""
-    t = np.arange(int(dur * SR)) / SR
-
-    # 立ち上がり: sin^2 カーブで attack 秒かけて滑らかに (クリック/アタック感を消す)
-    rise = np.where(t < attack, np.sin(0.5 * np.pi * t / attack) ** 2, 1.0)
-    env = rise * np.exp(-np.maximum(t - attack, 0) / tau)
-
-    # 基音: f0 -> f1 にゆっくり下降 (「ン」と沈む感じ)
-    freq = f1 + (f0 - f1) * np.exp(-t / 0.08)
-    phase = 2 * np.pi * np.cumsum(freq) / SR
-    body = np.sin(phase) + 0.35 * np.sin(2 * phase + 0.5)  # 2倍音で厚み
-
-    # ごく低域の「ドッ」という圧のノイズ (ローパス後なのでザラつかない)
-    thud = sosfilt(_LP_BODY, rng.standard_normal(len(t)))
-    thud /= np.max(np.abs(thud)) + 1e-9
-
-    return env * (body + 0.4 * thud)
 
 
 def _place(buf, sig, start_sec, gain):
@@ -63,53 +22,73 @@ def _place(buf, sig, start_sec, gain):
         buf[i:i + n] += gain * sig[:n]
 
 
-def _make_reverb(rng, length=0.30, decay=0.06):
-    """体内で響くような, 低域だけの短い残響のインパルス応答."""
+_LP_NB = butter(2, 30, "low", fs=SR, output="sos")
+TV_PITCH = 0.8
+TV_REVERB = 1.0
+
+
+def _make_tv_reverb(rng, length=3.0, rt60=3.5):
     t = np.arange(int(length * SR)) / SR
-    ir = rng.standard_normal(len(t)) * np.exp(-t / decay)
-    ir = sosfilt(_LP_BODY, ir)
+    ir = rng.standard_normal(len(t)) * np.exp(-t * 6.91 / rt60)
+    ir = sosfilt(butter(2, [80, 450], "bandpass", fs=SR, output="sos"), ir)
     return ir / np.sqrt(np.sum(ir ** 2))
 
 
-_REVERB_IR = _make_reverb(np.random.default_rng(0))
-REVERB_MIX = 0.25
+_TV_REVERB_IR = _make_tv_reverb(np.random.default_rng(1))
+_TV_REVERB_GAIN = 0.07
+_HP_TV = butter(2, 45, "high", fs=SR, output="sos")
+_LP_TV = butter(2, 1000, "low", fs=SR, output="sos")
 
 
-def gap_sec(bpm):
-    """ドッ -> クン の間隔. 72 BPM で約 0.20 s, 速いほど詰まる."""
-    return float(np.clip(0.24 * 60.0 / bpm, 0.12, 0.22))
+def _hit_tv(f0, f_mid, f_end, dur, rng, drop=0.045, attack=0.012):
+    t = np.arange(int(dur * SR)) / SR
+
+    freq = f_end + (f_mid - f_end) * (1 - t / dur) + (f0 - f_mid) * np.exp(-t / drop)
+    phase = 2 * np.pi * np.cumsum(freq * TV_PITCH) / SR
+
+    n = rng.standard_normal(len(t)) + 1j * rng.standard_normal(len(t))
+    n = sosfilt(_LP_NB, n.real) + 1j * sosfilt(_LP_NB, n.imag)
+    sig = np.real(n * np.exp(1j * phase))
+    sig /= np.sqrt(np.mean(sig ** 2)) + 1e-9
+
+    rise = np.where(t < attack, np.sin(0.5 * np.pi * t / attack) ** 2, 1.0)
+    fall = (1 - t / dur) ** 1.5
+    return rise * fall * sig
+
+
+def tv_gap_sec(bpm):
+    return float(np.clip(0.32 * 60.0 / bpm, 0.15, 0.45))
 
 
 def make_beat(bpm, rng):
-    """1拍分 (ドッ + クン) を返す. 長さは 1 周期と音の長さの大きい方."""
     period = 60.0 / bpm
-    g = gap_sec(bpm)
-    length = max(period, g + 0.75)
-    buf = np.zeros(int(length * SR))
+    g = tv_gap_sec(bpm)
+    buf = np.zeros(int(max(period, g + 0.25) * SR))
 
-    k = float(np.clip(period / 0.83, 0.6, 1.0))  # 速い心拍ほど余韻を短く
-    jit = lambda s: 1 + s * rng.uniform(-1, 1)  # 拍ごとの微妙なゆらぎ
+    k = float(np.clip(period / 0.9, 0.7, 1.0))
+    jit = lambda s: 1 + s * rng.uniform(-1, 1)
 
-    # ドッ: 少し高め・短め・控えめ
-    _place(buf, _hit(68 * jit(.03), 52, 0.012, 0.040*k, 0.30, rng), 0.0, 0.70 * jit(.05))
-    # クン: 低く太く長い. これが「ドクン」の本体
-    _place(buf, _hit(58 * jit(.03), 42, 0.018, 0.070*k, 0.45, rng), g, 1.00 * jit(.05))
+    _place(buf, _hit_tv(350 * jit(.05), 145 * jit(.03), 85, 0.16 * k, rng), 0.0, 1.00 * jit(.04))
+    _place(buf, _hit_tv(330 * jit(.05), 140 * jit(.03), 85, 0.13 * k, rng), g, 0.85 * jit(.04))
 
-    buf = sosfilt(_LP_BODY, buf)
-    # 柔らかい飽和で倍音 (80-300 Hz) を作り, 小さいスピーカーでも「ドクン」が聞こえるように
-    buf = np.tanh(1.6 * buf / (np.max(np.abs(buf)) + 1e-9))
-    buf = sosfilt(_LP_FINAL, buf)
+    buf = sosfilt(_LP_TV, sosfilt(_HP_TV, buf))
+    buf = buf / (np.max(np.abs(buf)) + 1e-9)
 
-    wet = np.convolve(buf, _REVERB_IR)[: len(buf)]
-    buf = (1 - REVERB_MIX) * buf + REVERB_MIX * wet
-    buf = sosfilt(_HP_DC, buf)
+    wet = fftconvolve(buf, _TV_REVERB_IR)
+    dry = np.concatenate([buf, np.zeros(len(wet) - len(buf))])
+    buf = dry + TV_REVERB * _TV_REVERB_GAIN * wet
     return 0.9 * buf / (np.max(np.abs(buf)) + 1e-9)
 
 
-class HeartbeatStream:
-    """BPM を途中で変えられる連続心音ジェネレータ."""
+DEFAULT_VOLUME = 2.0
 
-    def __init__(self, bpm, volume=0.8, seed=None):
+
+def soft_limit(x):
+    return np.tanh(x)
+
+
+class HeartbeatStream:
+    def __init__(self, bpm, volume=DEFAULT_VOLUME, seed=None):
         self.bpm = bpm
         self.volume = volume
         self.rng = np.random.default_rng(seed)
@@ -121,7 +100,6 @@ class HeartbeatStream:
             self.bpm = float(np.clip(bpm, BPM_MIN, BPM_MAX))
 
     def next_period(self):
-        """次の 1 周期分 (60/bpm 秒) のサンプルを返す. はみ出た音は次周期へ持ち越す."""
         with self.lock:
             bpm = self.bpm
         n = int(SR * 60.0 / bpm)
@@ -132,7 +110,36 @@ class HeartbeatStream:
             if len(self._tail) > m:
                 beat = np.concatenate([beat, self._tail[m:]])
         out, self._tail = beat[:n], beat[n:]
-        return np.clip(out * self.volume, -1, 1)
+        return soft_limit(out * self.volume)
+
+
+class TriggeredHeartbeat:
+    CHUNK = 1024
+    def __init__(self, volume=DEFAULT_VOLUME, seed=None):
+        self.volume = volume
+        self.rng = np.random.default_rng(seed)
+        self._buf = np.zeros(0)
+        self._events = queue.Queue()
+
+    def trigger(self, bpm):
+        self._events.put(float(np.clip(bpm, BPM_MIN, BPM_MAX)))
+
+    def next_chunk(self):
+        while True:
+            try:
+                bpm = self._events.get_nowait()
+            except queue.Empty:
+                break
+            beat = make_beat(bpm, self.rng)
+            if len(self._buf) < len(beat):
+                self._buf = np.concatenate([self._buf, np.zeros(len(beat) - len(self._buf))])
+            self._buf[: len(beat)] += beat
+
+        out = np.zeros(self.CHUNK)
+        n = min(self.CHUNK, len(self._buf))
+        out[:n] = self._buf[:n]
+        self._buf = self._buf[n:]
+        return soft_limit(out * self.volume)
 
 
 def to_pcm16(x):
@@ -165,13 +172,92 @@ def input_loop(stream, stop):
     stop.set()
 
 
+def serial_reader(ser, stream, stop):
+    while not stop.is_set():
+        try:
+            line = ser.readline().decode(errors="ignore").strip()
+        except Exception as e:
+            print(f"シリアル読み込みエラー: {e}")
+            stop.set()
+            break
+        if not line:
+            continue
+        parts = line.split()
+        if parts[0] == "BEAT":
+            try:
+                stream.trigger(float(parts[1]))
+            except (IndexError, ValueError):
+                stream.trigger(60.0)
+        else:
+            print(line)
+
+
+def serial_input_loop(ser, stop):
+    print("BPM を入力して Enter で Arduino の BPM を変更, s で停止, g で再開, q で終了")
+    for line in sys.stdin:
+        s = line.strip()
+        if s in ("q", "quit", "exit"):
+            break
+        if s in ("s", "g"):
+            ser.write(f"{s}\n".encode())
+            continue
+        try:
+            ser.write(f"{float(s):.1f}\n".encode())
+        except ValueError:
+            print("数値, s, g, q のいずれかを入力してください")
+    stop.set()
+
+
+def run_serial(args):
+    import serial
+
+    ser = serial.Serial(args.port, args.baud, timeout=0.2)
+    if args.bpm is not None:
+        time.sleep(2.0)
+        ser.write(f"{args.bpm:.1f}\n".encode())
+
+    stream = TriggeredHeartbeat(args.volume)
+    player = open_player()
+    stop = threading.Event()
+    threading.Thread(target=serial_reader, args=(ser, stream, stop), daemon=True).start()
+    threading.Thread(target=serial_input_loop, args=(ser, stop), daemon=True).start()
+    try:
+        while not stop.is_set():
+            player.stdin.write(to_pcm16(stream.next_chunk()))
+            player.stdin.flush()
+    except (KeyboardInterrupt, BrokenPipeError):
+        pass
+    finally:
+        stop.set()
+        ser.close()
+        try:
+            player.stdin.close()
+        except BrokenPipeError:
+            pass
+        try:
+            player.wait(timeout=2)
+        except subprocess.TimeoutExpired:
+            player.terminate()
+
+
 def main():
-    p = argparse.ArgumentParser(description="心拍数に合わせて心音を鳴らす")
-    p.add_argument("bpm", type=float, help="心拍数 [BPM]")
-    p.add_argument("--volume", type=float, default=0.8, help="音量 0-1 (default 0.8)")
+    p = argparse.ArgumentParser(description="Arduino の拍に同期して心音を鳴らす")
+    p.add_argument("bpm", type=float, nargs="?", default=None,
+                   help="心拍数 [BPM]. 同期時は起動時に Arduino へ送信 (省略時は送らない), --standalone/--wav 時は default 60")
+    p.add_argument("--port", default="/dev/ttyUSB0", help="Arduino のシリアルポート (default /dev/ttyUSB0)")
+    p.add_argument("--baud", type=int, default=115200, help="ボーレート (default 115200)")
+    p.add_argument("--standalone", action="store_true", help="Arduino なしで指定 BPM で鳴らし続ける")
     p.add_argument("--wav", help="再生せずに WAV ファイルへ書き出す")
     p.add_argument("--seconds", type=float, default=10.0, help="--wav 時の長さ [s]")
+    p.add_argument("--volume", type=float, default=DEFAULT_VOLUME,
+                   help=f"音量ゲイン (default {DEFAULT_VOLUME})")
     args = p.parse_args()
+
+    if not (args.standalone or args.wav):
+        run_serial(args)
+        return
+    if args.bpm is None:
+        args.bpm = 60.0
 
     stream = HeartbeatStream(args.bpm, args.volume)
     stream.set_bpm(args.bpm)
@@ -196,7 +282,6 @@ def main():
     threading.Thread(target=input_loop, args=(stream, stop), daemon=True).start()
     try:
         while not stop.is_set():
-            # パイプへの書き込みがブロックすることで実時間に同期する
             player.stdin.write(to_pcm16(stream.next_period()))
             player.stdin.flush()
     except (KeyboardInterrupt, BrokenPipeError):
@@ -207,7 +292,7 @@ def main():
         except BrokenPipeError:
             pass
         try:
-            player.wait(timeout=2)  # バッファを鳴らし切ってから終了
+            player.wait(timeout=2)
         except subprocess.TimeoutExpired:
             player.terminate()
 
