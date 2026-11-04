@@ -28,7 +28,7 @@ arduino-cli compile --fqbn arduino:avr:uno src/heartbeat
 arduino-cli upload  --fqbn arduino:avr:uno -p /dev/ttyUSB0 src/heartbeat
 ```
 
-心拍センサ MAX30102 を VIN→5V，GND→GND，SDA/SCL→A0/A1（順不同，起動時に自動判別）に接続すると，指を置いている間は測定した心拍数（直近 5 拍の中央値，40–120 BPM にクランプ）に BPM が同期する（`src/heartbeat/pulse_sensor.h`）．指を離すと最後の値を保持する．
+心拍センサ MAX30102 を VIN→5V，GND→GND，SDA/SCL→A0/A1（順不同，起動時に自動判別）に接続すると，指を置いている間だけ拍動し，BPM は測定した心拍数（直近 5 拍の中央値，40–120 BPM にクランプ）に同期する（`src/heartbeat/pulse_sensor.h`）．指を 2 秒離すと排気して休止し，再び 0.5 秒置くと再開する．センサが見つからない場合は従来どおり常時拍動する．
 
 拍動に同期して心音を鳴らす（起動後，数値で BPM 変更，`s` 停止，`g` 再開，`q` 終了）
 

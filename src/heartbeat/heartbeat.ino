@@ -37,6 +37,11 @@ const unsigned long CHARGE_FILL_MAX_MS = 1100;  // Max time valve 1 may stay clo
 enum Phase { PHASE_STOP, PHASE_ATRIUM, PHASE_VENTRICLE, PHASE_RELAX };
 Phase phase = PHASE_STOP;
 bool running = true;
+bool manualStop = false;  // Stopped with the 's' command (the finger does not restart it until 'g')
+
+// Rest while no finger is on the pulse sensor (only when the sensor is found)
+const unsigned long FINGER_ON_MS = 500;    // Start beating once the finger has been on for this long
+const unsigned long FINGER_OFF_MS = 2000;  // Rest once the finger has been off for this long
 
 unsigned long cycleStart = 0;
 unsigned long periodMs = 0;
@@ -76,6 +81,8 @@ void setup() {
     Serial.print("# pulse sensor found (");
     Serial.print(pulse::pins());
     Serial.println(")");
+    running = false;  // Rest until a finger is placed
+    Serial.println("# rest (waiting for finger)");
   } else {
     Serial.println("# pulse sensor not found: BPM is set over serial only");
     pulse::diag(Serial);
@@ -104,6 +111,23 @@ void updatePulse() {
     Serial.print(hr);
     Serial.print(" -> bpm ");
     Serial.println(bpm);
+  }
+
+  // Finger present -> beat, finger absent -> rest (with debouncing)
+  if (!pulse::found) return;
+  static bool lastFinger = false;
+  static unsigned long changedAt = 0;
+  unsigned long now = millis();
+  if (pulse::finger != lastFinger) {
+    lastFinger = pulse::finger;
+    changedAt = now;
+  }
+  if (pulse::finger && !running && !manualStop && now - changedAt >= FINGER_ON_MS) {
+    running = true;
+    Serial.println("# finger on: beat");
+  } else if (!pulse::finger && running && now - changedAt >= FINGER_OFF_MS) {
+    stopAll();
+    Serial.println("# finger off: rest");
   }
 }
 
@@ -242,11 +266,13 @@ void handleCommand(const char *s) {
     return;
   }
   if (s[0] == 's') {
+    manualStop = true;
     stopAll();
     Serial.println("# stop");
     return;
   }
   if (s[0] == 'g') {
+    manualStop = false;
     running = true;
     Serial.println("# go");
     return;
