@@ -79,7 +79,7 @@ void loop() {
     updatePhase(now);
     updateWater(now);
   }
-  safetyCheck(now);
+  safetyCheck(millis());  // Re-read the time: atriumFillStart is set with millis() inside setAir(), so an older now would underflow
 }
 
 void startCycle(unsigned long now) {
