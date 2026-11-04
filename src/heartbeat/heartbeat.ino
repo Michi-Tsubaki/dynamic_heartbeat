@@ -1,3 +1,5 @@
+#include "pulse_sensor.h"  // MAX30102 heart-rate sensor on A0/A1
+
 // CONSTANTS
 // WATER (KOOLANCE PMP-420 202572)
 const int WATER_PUMP = 2;
@@ -69,10 +71,20 @@ void setup() {
   Serial.begin(115200);
   Serial.print("# heartbeat start, bpm ");
   Serial.println(bpm);
+
+  if (pulse::begin()) {
+    Serial.print("# pulse sensor found (");
+    Serial.print(pulse::pins());
+    Serial.println(")");
+  } else {
+    Serial.println("# pulse sensor not found: BPM is set over serial only");
+    pulse::diag(Serial);
+  }
 }
 
 void loop() {
   readSerial();
+  updatePulse();
 
   unsigned long now = millis();
   if (running) {
@@ -80,6 +92,19 @@ void loop() {
     updateWater(now);
   }
   safetyCheck(millis());  // Re-read the time: atriumFillStart is set with millis() inside setAir(), so an older now would underflow
+}
+
+// Sync the BPM to the heart rate measured by the sensor (applied from the next beat on).
+// While no finger is on the sensor, keep the last value (or the serial-set value)
+void updatePulse() {
+  float hr = pulse::update();
+  if (hr > 0) {
+    bpm = constrain(hr, BPM_MIN, BPM_MAX);
+    Serial.print("# pulse ");
+    Serial.print(hr);
+    Serial.print(" -> bpm ");
+    Serial.println(bpm);
+  }
 }
 
 void startCycle(unsigned long now) {
@@ -212,6 +237,10 @@ void readSerial() {
 }
 
 void handleCommand(const char *s) {
+  if (s[0] == 'r') {
+    pulse::rawStream = !pulse::rawStream;
+    return;
+  }
   if (s[0] == 's') {
     stopAll();
     Serial.println("# stop");
