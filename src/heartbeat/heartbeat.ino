@@ -1,19 +1,20 @@
 #include "pulse_sensor.h"  // MAX30102 heart-rate sensor on A0/A1
 
 // CONSTANTS
-// WATER (KOOLANCE PMP-420 202572)
-const int WATER_PUMP = 2;
+// AIR PUMP (MOSFET)
+const int AIR_PUMP = 2;
 
-// AIR (DC MOTOR)
+// WATER (KOOLANCE PMP-420 202572, motor driver channel A)
 const int PWMA = 3;
 const int AIN1 = 8;
 const int AIN2 = 9;
 const int STBY = 10;
+const int WATER_PUMP_SPEED = 255;
 
-// AIR VALVES
-const int VALVE1 = 6;
-// const int VALVE2 = 4;  // Disabled: not enough current to drive both valves
-const int AIR_PUMP_SPEED = 255;
+// AIR VALVES (parallel: pump -> VALVE1 -> atrium, pump -> VALVE2 -> ventricle)
+// The air pump runs whenever either valve is open and stops only when both are closed
+const int VALVE1 = 6;  // Atrium
+const int VALVE2 = 4;  // Ventricle
 
 // AIR VALVES DEFAULT SETTING
 const int VALVE_OPEN = HIGH;
@@ -25,16 +26,13 @@ const float BPM_MAX = 120.0;
 
 // VARIABLES
 float bpm = 80.0;
-const float ATRIUM_RATIO = 0.3;      // Fraction of the period spent on atrial expansion
-const float VENTRICLE_RATIO = 0.60;  // Fraction of the period spent on ventricular expansion
-const unsigned long ATRIUM_FILL_MAX_MS = 250;  // Max time valve 1 may stay closed (atrium bursts at 300 ms or more)
-const float VENTRICLE_AIR_RATIO = 0.9;  // Fraction of ventricular expansion with the air pump running (for the rest, air moves from atrium to ventricle and the atrium deflates)
+const float ATRIUM_RATIO = 0.25;     // Fraction of the period spent on atrial expansion
+const float AV_GAP_RATIO = 0.15;     // Pause between atrium and ventricle (both closed: atrium deflates first)
+const float VENTRICLE_RATIO = 0.40;  // Fraction of the period spent on ventricular expansion (the rest is rest)
+const unsigned long ATRIUM_FILL_MAX_MS = 250;  // Max time air may flow into the atrium (atrium bursts at 300 ms or more)
 const float WATER_ON_RATIO = 0.3;  // Fraction of the period the water pump is ON
-const unsigned long CHARGE_INTERVAL_MS = 30000;  // Charge air at start and then at this interval
-const unsigned long CHARGE_MS = 1000;  // Charge time with both valves closed
-const unsigned long CHARGE_FILL_MAX_MS = 1100;  // Max time valve 1 may stay closed while charging (replaces ATRIUM_FILL_MAX_MS)
 
-enum Phase { PHASE_STOP, PHASE_ATRIUM, PHASE_VENTRICLE, PHASE_RELAX };
+enum Phase { PHASE_STOP, PHASE_ATRIUM, PHASE_AV_GAP, PHASE_VENTRICLE, PHASE_RELAX };
 Phase phase = PHASE_STOP;
 bool running = true;
 bool manualStop = false;  // Stopped with the 's' command (the finger does not restart it until 'g')
@@ -46,15 +44,13 @@ const unsigned long FINGER_OFF_MS = 2000;  // Rest once the finger has been off 
 unsigned long cycleStart = 0;
 unsigned long periodMs = 0;
 unsigned long atriumMs = 0;
+unsigned long ventricleStartMs = 0;
 unsigned long ventricleEndMs = 0;
-unsigned long ventricleAirEndMs = 0;
 unsigned long waterOnMs = 0;
-unsigned long lastChargeMs = 0;
-bool needCharge = true;
-bool charging = false;
 
 bool airOn = false;
 bool valve1Open = false;
+bool valve2Open = false;
 unsigned long atriumFillStart = 0;
 bool waterOn = true;
 
@@ -63,14 +59,14 @@ int cmdLen = 0;
 
 void setup() {
   pinMode(VALVE1, OUTPUT);
-  // pinMode(VALVE2, OUTPUT);
-  pinMode(WATER_PUMP, OUTPUT);
+  pinMode(VALVE2, OUTPUT);
+  pinMode(AIR_PUMP, OUTPUT);
   pinMode(PWMA, OUTPUT);
   pinMode(AIN1, OUTPUT);
   pinMode(AIN2, OUTPUT);
   pinMode(STBY, OUTPUT);
 
-  setAir(false, false, false);
+  setAir(false, false);
   setWater(false);
 
   Serial.begin(115200);
@@ -135,26 +131,12 @@ void startCycle(unsigned long now) {
   cycleStart = now;
   periodMs = 60000.0 / bpm;
   atriumMs = min((unsigned long)(periodMs * ATRIUM_RATIO), ATRIUM_FILL_MAX_MS);
-
-  // Charge: replace this beat's atrial phase with pumping while both valves are closed
-  bool charge = needCharge || now - lastChargeMs >= CHARGE_INTERVAL_MS;
-  unsigned long chargeExtraMs = 0;
-  if (charge) {
-    chargeExtraMs = CHARGE_MS - atriumMs;
-    atriumMs = CHARGE_MS;
-    lastChargeMs = now;
-    needCharge = false;
-    Serial.println("# charge");
-  }
-
-  ventricleEndMs = atriumMs + periodMs * VENTRICLE_RATIO;
-  ventricleAirEndMs = atriumMs + (ventricleEndMs - atriumMs) * VENTRICLE_AIR_RATIO;
+  ventricleStartMs = atriumMs + periodMs * AV_GAP_RATIO;
+  ventricleEndMs = ventricleStartMs + periodMs * VENTRICLE_RATIO;
   waterOnMs = periodMs * WATER_ON_RATIO;
-  periodMs += chargeExtraMs;  // A charge only lengthens the atrial phase; keep the other phases at their normal length
 
   phase = PHASE_ATRIUM;
-  charging = charge;
-  setAir(true, false, !charge);  // Atrial expansion (P wave)
+  setAir(true, false);  // Atrial expansion (P wave): air into the atrium
 }
 
 void updatePhase(unsigned long now) {
@@ -167,9 +149,15 @@ void updatePhase(unsigned long now) {
 
     case PHASE_ATRIUM:
       if (t >= atriumMs) {
+        phase = PHASE_AV_GAP;
+        setAir(false, false);  // A-V pause: both valves closed, air pump off
+      }
+      break;
+
+    case PHASE_AV_GAP:
+      if (t >= ventricleStartMs) {
         phase = PHASE_VENTRICLE;
-        charging = false;
-        setAir(ventricleAirEndMs > atriumMs, true, false);  // Ventricular expansion (QRS)
+        setAir(false, true);  // Ventricular expansion (QRS): air into the ventricle
         Serial.print("BEAT ");
         Serial.println(bpm);
       }
@@ -178,9 +166,7 @@ void updatePhase(unsigned long now) {
     case PHASE_VENTRICLE:
       if (t >= ventricleEndMs) {
         phase = PHASE_RELAX;
-        setAir(false, true, true);  // Vent (rest)
-      } else if (airOn && t >= ventricleAirEndMs) {
-        setAir(false, true, false);
+        setAir(false, false);  // Rest: both valves closed, air pump off
       }
       break;
 
@@ -194,54 +180,50 @@ void updatePhase(unsigned long now) {
 
 void updateWater(unsigned long now) {
   unsigned long t = now - cycleStart;
-  setWater(phase != PHASE_ATRIUM && t - atriumMs < waterOnMs);
+  setWater(phase != PHASE_ATRIUM && phase != PHASE_AV_GAP && t - ventricleStartMs < waterOnMs);
 }
 
 void stopAll() {
   running = false;
   phase = PHASE_STOP;
-  needCharge = true;
-  charging = false;
   setWater(false);
-  setAir(false, true, true);
-  delay(1000);
-  setAir(false, false, false);
+  setAir(false, false);
 }
 
-void setAir(bool pump, bool v1Open, bool v2Open) {
-  bool wasFilling = airOn && !valve1Open;
-  bool filling = pump && !v1Open;
-  if (filling && !wasFilling) {
+// Open/close the valves; the air pump runs whenever either valve is open
+void setAir(bool v1Open, bool v2Open) {
+  bool pump = v1Open || v2Open;
+  bool wasFilling = valve1Open;
+  if (v1Open && !wasFilling) {
     atriumFillStart = millis();
   }
 
   digitalWrite(VALVE1, v1Open ? VALVE_OPEN : VALVE_CLOSE);
-  // digitalWrite(VALVE2, v2Open ? VALVE_OPEN : VALVE_CLOSE);
+  digitalWrite(VALVE2, v2Open ? VALVE_OPEN : VALVE_CLOSE);
 
   if (pump != airOn) {
-    digitalWrite(STBY, pump ? HIGH : LOW);
-    digitalWrite(AIN1, pump ? HIGH : LOW);
-    digitalWrite(AIN2, LOW);
-    analogWrite(PWMA, pump ? AIR_PUMP_SPEED : 0);
+    digitalWrite(AIR_PUMP, pump ? HIGH : LOW);
   }
 
   airOn = pump;
   valve1Open = v1Open;
+  valve2Open = v2Open;
 }
 
 void setWater(bool on) {
   if (on != waterOn) {
-    digitalWrite(WATER_PUMP, on ? HIGH : LOW);
+    digitalWrite(STBY, on ? HIGH : LOW);
+    digitalWrite(AIN1, on ? HIGH : LOW);
+    digitalWrite(AIN2, LOW);
+    analogWrite(PWMA, on ? WATER_PUMP_SPEED : 0);
     waterOn = on;
   }
 }
 
 void safetyCheck(unsigned long now) {
-  unsigned long limitMs = charging ? CHARGE_FILL_MAX_MS : ATRIUM_FILL_MAX_MS;
-  if (airOn && !valve1Open && now - atriumFillStart >= limitMs) {
-    charging = false;
-    setAir(false, true, true);
-    Serial.println("# SAFETY: valve1 closed too long, air pump stopped and vented");
+  if (valve1Open && now - atriumFillStart >= ATRIUM_FILL_MAX_MS) {
+    setAir(false, valve2Open);
+    Serial.println("# SAFETY: atrium valve open too long, closed");
   }
 }
 
