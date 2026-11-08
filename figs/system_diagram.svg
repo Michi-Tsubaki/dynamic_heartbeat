@@ -1,0 +1,96 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 460" width="900" height="460" font-family="'Noto Sans CJK JP','Hiragino Sans','Yu Gothic',sans-serif" font-size="15" text-anchor="middle">
+  <defs>
+    <marker id="sig" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M0,0 L10,5 L0,10 z" fill="#888"/>
+    </marker>
+    <marker id="air" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#4a78b0"/>
+    </marker>
+    <marker id="water" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="5" markerHeight="5" orient="auto">
+      <path d="M0,0 L10,5 L0,10 z" fill="#2a9d8f"/>
+    </marker>
+  </defs>
+
+  <rect width="900" height="460" fill="#ffffff"/>
+
+  <!-- heart -->
+  <rect x="190" y="240" width="380" height="125" rx="10" fill="#fdf0f0" stroke="#c0504d" stroke-width="1.5" stroke-dasharray="6 4"/>
+  <text x="200" y="260" fill="#c0504d" text-anchor="start" font-size="14">心臓</text>
+
+  <!-- control -->
+  <g fill="#f2f2f2" stroke="#555" stroke-width="1.5">
+    <rect x="40" y="30" width="120" height="56" rx="6"/>
+    <rect x="230" y="30" width="200" height="56" rx="6"/>
+    <rect x="500" y="30" width="200" height="56" rx="6"/>
+  </g>
+  <text x="100" y="63" fill="#222">スピーカー</text>
+  <text x="330" y="54" fill="#222">PC</text>
+  <text x="330" y="74" fill="#666" font-size="12">heartbeat_sound.py</text>
+  <text x="600" y="54" fill="#222">Arduino</text>
+  <text x="600" y="74" fill="#666" font-size="12">heartbeat.ino</text>
+
+  <g stroke="#888" stroke-width="1.5" fill="none">
+    <path d="M230,58 H162" marker-end="url(#sig)"/>
+    <path d="M432,58 H498" marker-start="url(#sig)" marker-end="url(#sig)"/>
+    <!-- bus to drivers -->
+    <path d="M600,86 V118"/>
+    <path d="M110,118 H820"/>
+    <path d="M110,118 V138" marker-end="url(#sig)"/>
+    <path d="M370,118 V138" marker-end="url(#sig)"/>
+    <path d="M630,118 V138" marker-end="url(#sig)"/>
+    <path d="M820,118 V138" marker-end="url(#sig)"/>
+    <!-- drivers to actuators -->
+    <path d="M110,180 V268" marker-end="url(#sig)"/>
+    <path d="M370,180 V283" marker-end="url(#sig)"/>
+    <path d="M630,180 V283" marker-end="url(#sig)"/>
+    <path d="M820,180 V388" marker-end="url(#sig)"/>
+  </g>
+
+  <!-- drivers -->
+  <g fill="#f2f2f2" stroke="#555" stroke-width="1.5">
+    <rect x="45" y="140" width="130" height="40" rx="6"/>
+    <rect x="325" y="140" width="90" height="40" rx="6"/>
+    <rect x="585" y="140" width="90" height="40" rx="6"/>
+    <rect x="775" y="140" width="90" height="40" rx="6"/>
+  </g>
+  <text x="110" y="165" fill="#222" font-size="13">モータドライバ</text>
+  <text x="370" y="165" fill="#222" font-size="13">MOSFET</text>
+  <text x="630" y="165" fill="#222" font-size="13">MOSFET</text>
+  <text x="820" y="165" fill="#222" font-size="13">MOSFET</text>
+
+  <g fill="#ffffff" stroke="#555" stroke-width="1.5">
+    <rect x="50" y="270" width="120" height="50" rx="6"/>
+    <rect x="210" y="275" width="80" height="40" rx="6" fill="#ffffff" stroke="#c0504d"/>
+    <rect x="450" y="275" width="80" height="40" rx="6" fill="#ffffff" stroke="#c0504d"/>
+    <rect x="760" y="390" width="120" height="50" rx="6"/>
+  </g>
+  <text x="110" y="300" fill="#222">空気ポンプ</text>
+  <text x="250" y="300" fill="#222">心房</text>
+  <text x="490" y="300" fill="#222">心室</text>
+  <text x="820" y="420" fill="#222">水冷ポンプ</text>
+  <text x="760" y="300" fill="#666">外気</text>
+
+  <!-- valves -->
+  <g fill="#ffffff" stroke="#333" stroke-width="1.5">
+    <path d="M355,285 L385,305 L385,285 L355,305 z"/>
+    <path d="M615,285 L645,305 L645,285 L615,305 z"/>
+  </g>
+  <text x="370" y="328" fill="#222" font-size="13">弁1</text>
+  <text x="630" y="328" fill="#222" font-size="13">弁2</text>
+
+  <!-- air -->
+  <g stroke="#4a78b0" stroke-width="3" fill="none">
+    <path d="M170,295 H206" marker-end="url(#air)"/>
+    <path d="M290,295 H351" marker-end="url(#air)"/>
+    <path d="M385,295 H446" marker-end="url(#air)"/>
+    <path d="M530,295 H611" marker-end="url(#air)"/>
+    <path d="M645,295 H732" marker-end="url(#air)"/>
+    <path d="M110,320 V345 H490 V319" marker-end="url(#air)"/>
+  </g>
+
+  <!-- water -->
+  <g stroke="#2a9d8f" stroke-width="3" fill="none">
+    <path d="M760,405 H530 V369" marker-end="url(#water)"/>
+    <path d="M370,365 V428 H756" marker-end="url(#water)"/>
+  </g>
+</svg>
