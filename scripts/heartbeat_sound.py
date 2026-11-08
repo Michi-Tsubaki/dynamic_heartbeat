@@ -80,6 +80,36 @@ def make_beat(bpm, rng):
     return 0.9 * buf / (np.max(np.abs(buf)) + 1e-9)
 
 
+QUIVER_GAIN = 0.9  # Same peak level as a normal beat
+
+
+QUIVER_REVERB = 2.5  # Extra reverb for VF quivers (relative to a normal beat) so they ring over the machine noise
+
+
+def make_quiver(dur_ms, rng):
+    """One ventricular-fibrillation quiver, dramatized: an irregular flutter of 1-3 hits in the
+    same band as a normal heart sound, with heavy reverb (no clear S1/S2 pair)."""
+    dur = float(np.clip(dur_ms / 1000.0, 0.06, 0.2))
+    jit = lambda s: 1 + s * rng.uniform(-1, 1)
+    n_hits = int(rng.integers(1, 4))
+    buf = np.zeros(int((dur + 0.3) * SR))
+    t = 0.0
+    gain = 1.0
+    for _ in range(n_hits):
+        hit_dur = 0.13 * jit(.25)
+        _place(buf, _hit_tv(330 * jit(.15), 140 * jit(.12), 85, hit_dur, rng), t, gain * jit(.1))
+        t += rng.uniform(0.04, 0.09)
+        gain *= rng.uniform(0.6, 0.9)
+
+    buf = sosfilt(_LP_TV, sosfilt(_HP_TV, buf))
+    buf = buf / (np.max(np.abs(buf)) + 1e-9)
+
+    wet = fftconvolve(buf, _TV_REVERB_IR)
+    dry = np.concatenate([buf, np.zeros(len(wet) - len(buf))])
+    buf = dry + QUIVER_REVERB * TV_REVERB * _TV_REVERB_GAIN * wet
+    return QUIVER_GAIN * jit(.05) * buf / (np.max(np.abs(buf)) + 1e-9)
+
+
 DEFAULT_VOLUME = 2.0
 
 
@@ -122,15 +152,18 @@ class TriggeredHeartbeat:
         self._events = queue.Queue()
 
     def trigger(self, bpm):
-        self._events.put(float(np.clip(bpm, BPM_MIN, BPM_MAX)))
+        self._events.put(("beat", float(np.clip(bpm, BPM_MIN, BPM_MAX))))
+
+    def trigger_quiver(self, dur_ms):
+        self._events.put(("quiver", float(dur_ms)))
 
     def next_chunk(self):
         while True:
             try:
-                bpm = self._events.get_nowait()
+                kind, value = self._events.get_nowait()
             except queue.Empty:
                 break
-            beat = make_beat(bpm, self.rng)
+            beat = make_beat(value, self.rng) if kind == "beat" else make_quiver(value, self.rng)
             if len(self._buf) < len(beat):
                 self._buf = np.concatenate([self._buf, np.zeros(len(beat) - len(self._buf))])
             self._buf[: len(beat)] += beat
@@ -188,6 +221,11 @@ def serial_reader(ser, stream, stop):
                 stream.trigger(float(parts[1]))
             except (IndexError, ValueError):
                 stream.trigger(60.0)
+        elif parts[0] == "QUIVER":
+            try:
+                stream.trigger_quiver(float(parts[1]))
+            except (IndexError, ValueError):
+                stream.trigger_quiver(100.0)
         else:
             print(line)
 
@@ -208,6 +246,9 @@ def serial_input_loop(ser, stop):
     stop.set()
 
 
+SYNC_LEAD_SEC = 0.06  # Audio written ahead of real time (keep small: it adds to the sound delay)
+
+
 def run_serial(args):
     import serial
 
@@ -221,10 +262,20 @@ def run_serial(args):
     stop = threading.Event()
     threading.Thread(target=serial_reader, args=(ser, stream, stop), daemon=True).start()
     threading.Thread(target=serial_input_loop, args=(ser, stop), daemon=True).start()
+    # Write in real time with only a small lead: if we wrote as fast as possible, the pipe
+    # (64 KiB = ~0.75 s) would fill with silence and every beat would play that much late
+    t0 = time.monotonic()
+    written = 0
     try:
         while not stop.is_set():
+            ahead = written / SR - (time.monotonic() - t0)
+            if ahead > SYNC_LEAD_SEC:
+                time.sleep(ahead - SYNC_LEAD_SEC)
+            elif ahead < 0:  # Underrun (e.g. after a stall): resync instead of building lag
+                t0 = time.monotonic() - written / SR
             player.stdin.write(to_pcm16(stream.next_chunk()))
             player.stdin.flush()
+            written += TriggeredHeartbeat.CHUNK
     except (KeyboardInterrupt, BrokenPipeError):
         pass
     finally:
