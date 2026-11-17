@@ -1,3 +1,5 @@
+[![Project Page](https://img.shields.io/badge/Project_Page-Dynamic_Heartbeat-ff3549?style=flat-square&labelColor=0a0a0a)](https://michi-tsubaki.github.io/dynamic_heartbeat/)
+
 # Dynamic Heartbeat @東京大学制作展2026 Main
 
 https://github.com/user-attachments/assets/2dedd3f1-b101-468e-ab6f-55a00ca67ba1
