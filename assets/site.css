@@ -106,6 +106,14 @@ video { width: 100%; aspect-ratio: 16 / 9; background: #050505; object-fit: cove
 .affiliation { font-size: 16px; color: var(--muted); line-height: 1.9; margin-top: 30px; }
 .affiliation a { text-decoration: underline; text-decoration-color: #686360; text-underline-offset: 4px; }
 .affiliation a:hover { color: var(--red); text-decoration-color: var(--red); }
+.advisers { margin-top: 32px; text-align: center; }
+.advisers h3 { font-family: "Space Grotesk", sans-serif; font-size: 20px; font-weight: 500; letter-spacing: -.03em; margin-bottom: 28px; }
+.advisers-list { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; max-width: 640px; margin-inline: auto; }
+.adviser-name { font-size: clamp(16px, 1.3vw, 20px); line-height: 1.5; }
+.adviser-roman, .adviser-role { color: var(--muted); font-size: 13px; line-height: 1.7; margin-top: 6px; }
+.adviser-lab { display: inline-block; margin-top: 26px; font-size: 14px; color: var(--muted); text-decoration: underline; text-decoration-color: #686360; text-underline-offset: 4px; }
+.adviser-lab:hover { color: var(--red); text-decoration-color: var(--red); }
+html[lang="en"] .adviser-roman { display: none; }
 .citation { display: grid; grid-template-columns: 1fr; gap: 40px; padding-bottom: clamp(75px, 8vw, 135px); }
 .citation h2 { padding-bottom: 24px; border-bottom: 1px solid var(--text); }
 .citation-content { position: relative; display: flow-root; min-width: 0; padding: 24px; border: 1px solid var(--line); background: var(--surface); }
@@ -187,6 +195,7 @@ html[lang="en"] .name-roman { display: none; }
   .citation pre { font-size: 11px; }
   .credits-heading > p { font-size: 10px; }
   .creators { grid-template-columns: 1fr; gap: 40px; }
+  .advisers-list { grid-template-columns: 1fr; gap: 26px; }
   .creator h3 { font-size: 28px; }
   .name-roman { font-size: 15px; }
   .affiliation { font-size: 15px; margin-top: 22px; }
