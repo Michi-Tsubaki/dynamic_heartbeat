@@ -111,8 +111,6 @@ video { width: 100%; aspect-ratio: 16 / 9; background: #050505; object-fit: cove
 .advisers-list { display: grid; grid-template-columns: 1fr 1fr; gap: 32px; max-width: 640px; margin-inline: auto; }
 .adviser-name { font-size: clamp(16px, 1.3vw, 20px); line-height: 1.5; }
 .adviser-roman, .adviser-role { color: var(--muted); font-size: 13px; line-height: 1.7; margin-top: 6px; }
-.adviser-lab { display: inline-block; margin-top: 26px; font-size: 14px; color: var(--muted); text-decoration: underline; text-decoration-color: #686360; text-underline-offset: 4px; }
-.adviser-lab:hover { color: var(--red); text-decoration-color: var(--red); }
 html[lang="en"] .adviser-roman { display: none; }
 .citation { display: grid; grid-template-columns: 1fr; gap: 40px; padding-bottom: clamp(75px, 8vw, 135px); }
 .citation h2 { padding-bottom: 24px; border-bottom: 1px solid var(--text); }

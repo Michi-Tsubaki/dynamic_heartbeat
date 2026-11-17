@@ -1,0 +1,5 @@
+[0:v]split=3[base][subject][key];
+[base]lutrgb=r='val*0.12':g='val*0.12':b='val*0.12'[dark];
+[subject]eq=contrast=1.035:brightness=0.008:saturation=1.025[lit];
+[key]format=gbrp,geq=r='255*clip((r(X,Y)-g(X,Y)-6)/18,0,1)*clip((g(X,Y)-b(X,Y)-3)/14,0,1)':g='255*clip((r(X,Y)-g(X,Y)-6)/18,0,1)*clip((g(X,Y)-b(X,Y)-3)/14,0,1)':b='255*clip((r(X,Y)-g(X,Y)-6)/18,0,1)*clip((g(X,Y)-b(X,Y)-3)/14,0,1)',format=gray,dilation,dilation,erosion,erosion,erosion,erosion,gblur=sigma=4[mask];
+[dark][lit][mask]maskedmerge,vignette=angle=PI/9:x0=640:y0=370,format=yuv420p[outv]
